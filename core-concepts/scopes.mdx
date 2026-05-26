@@ -1,0 +1,346 @@
+# Scopes & Components
+
+> **renai.build · Core concepts · Scopes & Components**
+
+Scopes define the visibility, ownership, and accessibility boundaries of every resource inside **renai.build**. Every component — agents, skills, vaults, memorystores, filestores, projects, blueprints — operates within a specific scope that controls who can see, use, and modify it.
+
+**Four things scopes enforce:**
+
+- **Access control** — Who can read or write a resource.
+- **Isolation** — Keeping users, teams, and execution environments separate.
+- **Collaboration** — Controlled sharing within organizations.
+- **Governance** — Ownership, visibility, and permission management.
+
+---
+
+## The Ren Interface
+
+Ren gives your team a unified workspace to create, deploy, and monitor AI agents — with full visibility into tasks, performance, and resource usage.
+
+**Dashboard** — surfaces total tasks, autonomy score, success rate, and active agents at a glance. The tasks-over-time chart breaks down activity by user, and the Agent Ranking table shows which agents are handling the most work.
+
+**Pod overview** — consolidates sandbox health (uptime, CPU, memory, disk), recent activity, agent assignments, members, vaults, filestores, and memorystores — everything that makes up your working environment in one view.
+
+---
+
+## Scopes
+
+There are three scope levels. Scopes move from broadest visibility to narrowest isolation — think of them as concentric rings.
+
+| Scope | Icon | Description |
+|---|---|---|
+| **Private** | 🔒 | Visible only to the creator. Maximum isolation. Safe for experimentation, sensitive credentials, and personal agents. |
+| **Organization** | 🏢 | Shared across team members. Controlled collaboration within a pod. Ideal for shared infrastructure and team-wide workflows. |
+| **Public** | 🌐 | Discoverable by all users across the platform. Intended for reusable blueprints, open skills, and community integrations. |
+
+### Scope Hierarchy
+
+From widest to narrowest:
+
+```
+Public         → All users on the platform
+  (blueprints, open skills, community MCPs, templates)
+
+  Organization → Pod members only
+    (shared agents, team filestores, org vaults, internal MCPs)
+
+    Private    → Creator only
+      (personal agents, experimental skills, sensitive creds)
+```
+
+### Scope Characteristics
+
+| Characteristic | Private | Org | Public |
+|---|---|---|---|
+| Visibility | Creator only | Team members | All users |
+| Collaboration | None | Permission-managed | Open access |
+| Safe for secrets | ✓ Yes | With care | ✗ Never |
+| Discoverable | No | Within org | Yes |
+| Primary use | Experimentation | Team workflows | Community reuse |
+
+---
+
+## Scope Narrowing
+
+Scope narrowing is the practice of reducing the visibility of a resource as requirements evolve — starting broad during development, then tightening as you move toward production.
+
+### Typical Narrowing Lifecycle
+
+**01 → Start private**  
+Build and test in isolation. Create your resource under private scope. Connect it to a personal memorystore and vault. Iterate freely — nothing you do here affects teammates. This is the safest environment for untested skills, agents under development, or any resource containing real credentials.
+
+**02 → Promote to organization scope**  
+Once stable, share the resource with your pod. Team members can now invoke it, fork it, or integrate it into shared workflows. Update vault references to use org-level credentials. At this stage, establish permission boundaries — who within the org can modify vs only read.
+
+**03 → Harden the resource**  
+Before any broader exposure, audit the resource for leaked secrets, overly-broad MCP access, or tight coupling to internal-only filestores. Apply least-privilege: remove any permissions the resource doesn't actively need. This is the gate before the registry.
+
+**04 → Publish to the registry (optional)**  
+Public resources are discoverable by all users. Ensure there is no sensitive information anywhere in the resource tree — including referenced filestores, memorystore content, and MCP config. Public blueprints and skills enable community reuse and ecosystem growth, but they require stricter ongoing validation.
+
+> ⚠️ **Narrowing is not reversible without review.** Going from public back to org or private does not retroactively remove forks or copies that other users have made. Design for the most restrictive scope you'll ever need from the start.
+
+### When to Narrow Scope
+
+Apply scope narrowing whenever:
+
+- **SECURITY ↑** — A resource gains access to real credentials, production data, or customer-facing agents.
+- **SENSITIVITY ↑** — The memorystore or filestore attached to an agent begins holding PII or confidential documents.
+- **AUDIT TRAIL** — Compliance requires knowing exactly who can access which resources — use org scope with explicit ACLs.
+
+---
+
+## Scope Usage Matrix
+
+Not all components support all scopes. This matrix shows which scope levels are meaningful for each resource type.
+
+| Component | Private | Org | Public |
+|---|---|---|---|
+| 🧊 Pods | ● | ● | ○ |
+| 📁 Projects | ● | ● | ○ |
+| 🤖 Agents | ● | ● | ◐ |
+| ⚡ Skills | ● | ● | ● |
+| 🔌 MCP servers | ● | ● | ◐ |
+| 🔑 Vault | ● | ● | ○ |
+| 🗄️ Filestores | ● | ● | ○ |
+| 🧠 Memorystores | ● | ● | ○ |
+| 📐 Blueprints | ● | ● | ● |
+
+`●` Fully supported &nbsp; `◐` Supported with restrictions &nbsp; `○` Not applicable
+
+---
+
+## Components
+
+### Pods
+
+A **pod** is the top-level workspace in Ren. Everything else — projects, agents, skills, routines — lives inside one. Create a new pod for each team or customer account.
+
+> Think of a pod the way you'd think of a GitHub organization. It's the outermost boundary that groups all your work.
+
+```javascript
+// Create a pod
+const { data: pod } = await client.pod.create({
+  body: { name: "Acme Corp" },
+})
+```
+
+Pods do not have a public scope — they are either private to a user or shared within an org team.
+
+---
+
+### Projects
+
+A **project** groups agents, skills, filestores, and memorystores for a single product or feature inside a pod. Projects are the unit of organization within a pod.
+
+```javascript
+const { data: project } = await client.pod.project.create({
+  path: { podId: pod.id },
+  body: { name: "Support bot", slug: "support-bot" },
+})
+```
+
+Further nested namespaces — `client.pod.project.agent`, `.fileStore`, `.memoryStore`, `.routine` — link resources into the project.
+
+---
+
+### Agents
+
+An **agent** is a versioned, executable definition. It runs tasks by composing skills and calling tools via MCP servers. Ren manages execution, session logging, and replay.
+
+**Versioned** *(PROPERTY)*  
+Agents are versioned independently. You can run a specific version or always use latest — useful for staged rollouts and debugging regressions.  
+_Scopes: private, org_
+
+**Sessions & Replay** *(BUILT-IN)*  
+Every agent run creates a session — a full log of inputs, tool calls, outputs, and reasoning. Sessions are replayable step-by-step for debugging.  
+_Scopes: private, org_
+
+#### Agent Execution Flow
+
+```
+01 Input task → 02 Reasoning & planning → 03 Skill + tool invocation → 04 Memory retrieval → 05 Final output
+```
+
+> Agents are scope-aware — a private agent can only access private or org vaults and filestores. It cannot reach public-only resources it isn't explicitly granted access to.
+
+---
+
+### Skills
+
+A **skill** is a reusable, versioned capability that agents compose. Skills are versioned independently from agents, so you can update a skill without re-deploying every agent that uses it.
+
+```javascript
+// Create a skill, then version it
+const { data: skill } = await client.skill.create()
+
+const { data: version } = await client.skill.version.create({
+  path: { skillId: skill.id },
+  // ...version body — see API reference
+})
+
+// Fork a registry skill and customise it
+await client.skill.copy({ path: { id: registrySkillId } })
+```
+
+Skills support all three scopes. An `org`-scoped skill is shared across the pod. A `public`-scoped skill is published to the registry — where the community can discover and fork it.
+
+#### Skill Execution Flow
+
+```
+Agent receives task → Agent invokes Skill → Skill executes logic & tools → Result returned to Agent
+```
+
+> **Registry:** The public catalog of skills. Use `client.skill.copy` to fork a registry skill and customize it for your own use without affecting the original.
+
+---
+
+### MCP Servers
+
+**MCP** — the Model Context Protocol — exposes external tools to agents. Connect your Notion workspace, Linear board, Apollo, or any tool with an MCP endpoint.
+
+```javascript
+const { data: server } = await client.mcp.create({
+  body: {
+    slug: "linear",
+    name: "Linear",
+    mcpServerUrl: "https://mcp.example.com/linear",
+    auth: "none",
+  },
+})
+```
+
+> ⚠️ **Scope matters a lot for MCP.** An org-scoped MCP server is accessible to every agent in the pod. Avoid connecting MCP servers with broad write permissions at org scope unless every agent in the pod should have that access.
+
+MCP server scope controls which agents can invoke it. A private MCP server is accessible only to agents you own. Promote it to org scope when the whole team needs the same tool connection.
+
+---
+
+### Vault
+
+A **vault** holds credentials — API keys, OAuth tokens, any secret an agent needs to authenticate with external services. Vaults are never directly readable by end-users; agents access them at runtime.
+
+```javascript
+// Create vault → attach to pod → add credentials
+const { data: vault } = await client.vault.create({
+  body: { name: "production" },
+})
+
+await client.pod.vault.add({
+  path: { id: podId },
+  body: { vaultId: vault.id, priority: 0 },
+})
+
+await client.credential.create({
+  path: { vaultId: vault.id },
+  body: {
+    name: "stripe-secret",
+    auth: { type: "api_key", apiKey: "sk_live_..." },
+  },
+})
+```
+
+> ⚠️ **Vaults should never be public.** Only private and org scopes are appropriate for vaults. Attaching a vault to a pod at org scope means every agent in the pod can access the credentials inside — use a separate vault per team if access should be granular.
+
+---
+
+### Filestores
+
+A **filestore** is durable storage for raw files — PDFs, CSVs, API documentation, reports. Create a filestore, attach it to projects, and upload via presigned URLs.
+
+```javascript
+// Create, attach, and upload
+const { data: store } = await client.fileStore.create({
+  body: { name: "customer-docs" },
+})
+
+await client.pod.project.fileStore.add({
+  path: { podId, id: projectId },
+  body: { fileStoreId: store.id },
+})
+
+const { data: presigned } = await client.fileStore.files.presignUpload({
+  path: { id: store.id },
+  body: { path: "reports/2026-04.pdf", contentType: "application/pdf" },
+})
+```
+
+> **Filestores vs memorystores:** Use a filestore for raw, agent-readable documents. Use a memorystore when you need agents to recall context across sessions — memorystores are semantically indexed, filestores are not.
+
+---
+
+### Memorystores
+
+A **memorystore** provides agents with persistent context across sessions. Unlike filestores, memorystores are semantically indexed — agents query them by meaning, not by filename.
+
+```javascript
+const { data: store } = await client.memoryStore.create({
+  body: { name: "product-faqs" },
+})
+
+await client.pod.project.memoryStore.add({
+  path: { podId, id: projectId },
+  body: { memoryStoreId: store.id },
+})
+
+// Upload documents the agent will recall from
+await client.memoryStore.files.upload({
+  path: { id: store.id },
+  // Multipart form data — see API reference
+})
+```
+
+#### Memory Types
+
+**SHORT-TERM — Session memory**  
+Temporary execution context for the current session. Cleared when the session ends.
+
+**LONG-TERM — Persistent memory**  
+Stored knowledge that persists across sessions. Indexed semantically — agents query by meaning, not filename.
+
+A memorystore scoped to an org gives every agent in the pod access to the same shared knowledge base — useful for product FAQs, company context, or documentation that all agents should know about.
+
+---
+
+### Blueprints
+
+A **blueprint** captures an entire agent setup — agents, skills, MCP integrations, project structure — and exports it as a reusable template. Blueprints are the primary unit of sharing in the registry.
+
+> **Blueprints power the registry.** Publishing a blueprint to the registry makes your entire AI workflow available to other users as a one-click setup — agents, skills, and all connected resources.
+
+#### Blueprint Deployment Flow
+
+```
+Blueprint selected → Resources generated → Configurations applied → Deployment ready
+```
+
+Before publishing a blueprint to public scope, audit every resource it references:
+
+- **VAULT** — Strip all credentials. Blueprints should reference vault slots, not actual values.
+- **FILESTORE** — Ensure no internal or customer-specific documents are bundled in exported filestores.
+- **MCP CONFIG** — MCP endpoints that require org-internal auth shouldn't be bundled into public blueprints.
+
+---
+
+## Best Practices
+
+| | Title | Description |
+|---|---|---|
+| ✅ DO | Use private scope by default | Start every new resource in private scope. Only promote when you're confident it's stable and free of sensitive data. |
+| ❌ DON'T | Share vaults at org scope carelessly | An org-scoped vault gives all pod agents access to its credentials. Separate production vaults from development vaults. |
+| ✅ DO | Apply least-privilege to MCP servers | Give each MCP server the minimum permission set. An outreach agent doesn't need access to your codebase MCP server. |
+| ❌ DON'T | Mix sensitive and public resources | A blueprint that references a private filestore containing customer data should never be promoted to public scope. |
+| ✅ DO | Use org scope for team infrastructure | Shared filestores, memorystores, and MCP servers at org scope reduce duplication and keep team agents consistent. |
+| ❌ DON'T | Assume public = safe | Public resources receive no extra security scrutiny automatically. You are responsible for auditing what you publish to the registry. |
+
+---
+
+## Common Mistakes
+
+| Mistake | Risk | Fix |
+|---|---|---|
+| Overexposing via public scope | Sensitive internal logic or data becomes discoverable | Audit before publishing; use org scope for most sharing |
+| Sharing a single vault across all teams | Any agent in any project can access all credentials | One vault per team or sensitivity level; attach only what's needed |
+| Unrestricted org-scope MCP access | All agents gain write access to tools like CRMs or code repos | Scope MCP servers to the projects or agents that need them |
+| Mixing customer data into shared memorystores | Cross-tenant data leakage between agent sessions | Separate memorystores per customer or project |
+| Publishing blueprints without credential audit | Credentials or internal endpoints bundled into public templates | Strip all secrets; replace with vault slot references before publishing |
